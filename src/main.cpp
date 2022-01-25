@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <MIDI.h>
-#include <SPI.h>
 #include <USBHost_t36.h>
+#include <dac.h>
 
 #define SWITCH1_PIN 31
 #define SWITCH2_PIN 30
@@ -32,7 +32,6 @@
 #define GATE4_PIN 24
 
 unsigned long clkOutputStartTime = 0;
-int gain = 0;
 
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDI);
 
@@ -61,14 +60,20 @@ MIDIDevice keyboard(myusb);
 
 byte noteSlotPlaying[4] = {0, 0, 0, 0};
 
-int dac_loop_counter = 1;
+dac dac1;
+dac dac2;
+dac dac3;
+dac dac4;
+dac dac5;
+dac dac6;
+dac dac7;
+dac dac8;
 
 int potiVal = 0;
 
 void miditest();
 void readSwitches();
 void testDAC();
-void writeDAC(int, int, int);
 void readPoti();
 
 void OnNoteOn(byte, byte, byte);
@@ -107,9 +112,6 @@ void setup() {
   digitalWrite(LED_PIN3, LOW);
   digitalWrite(LED_PIN4, LOW);
 
-  SPI.begin();  
-  SPI.setClockDivider(SPI_CLOCK_DIV2);
-
   myusb.begin();
 	keyboard.setHandleNoteOff(OnNoteOff);
 	keyboard.setHandleNoteOn(OnNoteOn);
@@ -118,6 +120,15 @@ void setup() {
   usbMIDI.setHandleNoteOff(OnNoteOn);
   usbMIDI.setHandleNoteOn(OnNoteOff);
   usbMIDI.setHandleClock(myClock);
+
+  dac1.initialize(DAC1_CS_PIN, 0);
+  dac2.initialize(DAC1_CS_PIN, 1);
+  dac3.initialize(DAC2_CS_PIN, 0);
+  dac4.initialize(DAC2_CS_PIN, 1);
+  dac5.initialize(DAC3_CS_PIN, 0);
+  dac6.initialize(DAC3_CS_PIN, 1);
+  dac7.initialize(DAC4_CS_PIN, 0);
+  dac8.initialize(DAC4_CS_PIN, 1);
 }
 
 void loop() {
@@ -140,24 +151,6 @@ void readPoti() {
   }
 }
 
-void testDAC() {
-  dac_loop_counter++;
-  if (dac_loop_counter >= 4095) {
-    dac_loop_counter = 1;
-  }
-  
-  writeDAC(DAC1_CS_PIN, 0, dac_loop_counter);
-  writeDAC(DAC1_CS_PIN, 1, dac_loop_counter);
-
-  writeDAC(DAC2_CS_PIN, 0, dac_loop_counter);
-  writeDAC(DAC2_CS_PIN, 1, dac_loop_counter);
-
-  writeDAC(DAC3_CS_PIN, 0, dac_loop_counter);
-  writeDAC(DAC3_CS_PIN, 1, dac_loop_counter);
-
-  writeDAC(DAC4_CS_PIN, 0, dac_loop_counter);
-  writeDAC(DAC4_CS_PIN, 1, dac_loop_counter);
-}
 
 void setMidiChannel() {
   int ch = 0;
@@ -284,35 +277,37 @@ void OnNoteOn(byte channel, byte note, byte velocity) {
     }
     if (hasFreeSlot) {
       noteSlotPlaying[freeSlot] = note;
+      int n = (int)(note * 42.666);
+      int v = velocity * 32;
       switch (freeSlot) {
         case 1:
-          writeDAC(DAC1_CS_PIN, 0, (int)(note * 42.666));
-          writeDAC(DAC3_CS_PIN, 0, velocity * 32);
+          dac1.write(n);
+          dac5.write(v);
           digitalWrite(GATE1_PIN, HIGH);
           digitalWrite(LED_PIN1, HIGH);
           break;
         case 2:
-          writeDAC(DAC1_CS_PIN, 1, (int)(note * 42.666));
-          writeDAC(DAC3_CS_PIN, 1, velocity * 32);
+          dac2.write(n);
+          dac6.write(v);
           digitalWrite(GATE2_PIN, HIGH);
           digitalWrite(LED_PIN2, HIGH);
           break;
         case 3:
-          writeDAC(DAC2_CS_PIN, 0, (int)(note * 42.666));
-          writeDAC(DAC4_CS_PIN, 0, velocity * 32);
+          dac3.write(n);
+          dac7.write(v);
           digitalWrite(GATE3_PIN, HIGH);
           digitalWrite(LED_PIN3, HIGH);
           break;
         case 4:
-          writeDAC(DAC2_CS_PIN, 1, (int)(note * 42.666));
-          writeDAC(DAC4_CS_PIN, 1, velocity * 32);
+          dac4.write(n);
+          dac8.write(v);
           digitalWrite(GATE4_PIN, HIGH);
           digitalWrite(LED_PIN4, HIGH);
           break;
         
         default:
-          writeDAC(DAC1_CS_PIN, 0, (int)(note * 42.666));
-          writeDAC(DAC3_CS_PIN, 0, velocity * 32);
+          dac1.write(n);
+          dac5.write(v);
           digitalWrite(GATE1_PIN, HIGH);
           digitalWrite(LED_PIN1, HIGH);
           break;
@@ -372,11 +367,20 @@ void stopClockTick() {
   }
 }
 
-void writeDAC(int cs, int dac, int val) {
-  digitalWrite(cs, LOW);
-  dac = dac & 1;
-  val = val & 4095;
-  SPI.transfer(dac << 7 | gain << 5 | 1 << 4 | val >> 8);
-  SPI.transfer(val & 255);
-  digitalWrite(cs, HIGH);
+// remove
+int dac_loop_counter = 1;
+void testDAC() {
+  dac_loop_counter++;
+  if (dac_loop_counter >= 4095) {
+    dac_loop_counter = 1;
+  }
+
+  dac1.write(dac_loop_counter);
+  dac2.write(dac_loop_counter);
+  dac3.write(dac_loop_counter);
+  dac4.write(dac_loop_counter);
+  dac5.write(dac_loop_counter);
+  dac6.write(dac_loop_counter);
+  dac7.write(dac_loop_counter);
+  dac8.write(dac_loop_counter);
 }
