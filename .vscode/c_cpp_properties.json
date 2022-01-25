@@ -224,7 +224,7 @@
                 "PLATFORMIO=50204",
                 "__IMXRT1062__",
                 "ARDUINO_TEENSY41",
-                "USB_SERIAL",
+                "USB_MIDI",
                 "ARDUINO=10805",
                 "TEENSYDUINO=155",
                 "CORE_TEENSY",
