@@ -2,6 +2,7 @@
 #include <MIDI.h>
 #include <USBHost_t36.h>
 #include <dac.h>
+#include <gate.h>
 
 #define SWITCH1_PIN 31
 #define SWITCH2_PIN 30
@@ -60,29 +61,33 @@ MIDIDevice keyboard(myusb);
 
 byte noteSlotPlaying[4] = {0, 0, 0, 0};
 
-dac dac1;
-dac dac2;
-dac dac3;
-dac dac4;
-dac dac5;
-dac dac6;
-dac dac7;
-dac dac8;
+dac note1;
+dac note2;
+dac note3;
+dac note4;
+dac velocity1;
+dac velocity2;
+dac velocity3;
+dac velocity4;
+
+gate gate1;
+gate gate2;
+gate gate3;
+gate gate4;
 
 int potiVal = 0;
 
-void miditest();
 void readSwitches();
-void testDAC();
 void readPoti();
 
 void OnNoteOn(byte, byte, byte);
 void OnNoteOff(byte, byte, byte);
-void myClock();
+void OnClockTick();
 void analogMidiReceive();
 
 void startClockTick();
 void stopClockTick();
+void setMidiChannel();
 
 void setup() {
   MIDI.begin(MIDI_CHANNEL_OMNI);
@@ -91,146 +96,130 @@ void setup() {
 
   pinMode(SWITCH1_PIN, INPUT_PULLUP);
   pinMode(SWITCH2_PIN, INPUT_PULLUP);
-  pinMode(SWITCH3_PIN, INPUT_PULLUP);
-  pinMode(SWITCH4_PIN, INPUT_PULLUP);
-  pinMode(SWITCH5_PIN, INPUT_PULLUP);
-  pinMode(SWITCH6_PIN, INPUT_PULLUP);
 
-  // DAC SETUP
-  pinMode(DAC1_CS_PIN, OUTPUT);
-  pinMode(DAC2_CS_PIN, OUTPUT);
-  pinMode(DAC3_CS_PIN, OUTPUT);
-  pinMode(DAC4_CS_PIN, OUTPUT);
-
-  pinMode(LED_PIN1, OUTPUT);
-  pinMode(LED_PIN2, OUTPUT);
-  pinMode(LED_PIN3, OUTPUT);
-  pinMode(LED_PIN4, OUTPUT);
-
-  digitalWrite(LED_PIN1, LOW);
-  digitalWrite(LED_PIN2, LOW);
-  digitalWrite(LED_PIN3, LOW);
-  digitalWrite(LED_PIN4, LOW);
+  pinMode(CLOCK_PIN, OUTPUT);
 
   myusb.begin();
 	keyboard.setHandleNoteOff(OnNoteOff);
 	keyboard.setHandleNoteOn(OnNoteOn);
-  keyboard.setHandleClock(myClock);
+  keyboard.setHandleClock(OnClockTick);
 
   usbMIDI.setHandleNoteOff(OnNoteOn);
   usbMIDI.setHandleNoteOn(OnNoteOff);
-  usbMIDI.setHandleClock(myClock);
+  usbMIDI.setHandleClock(OnClockTick);
 
-  dac1.initialize(DAC1_CS_PIN, 0);
-  dac2.initialize(DAC1_CS_PIN, 1);
-  dac3.initialize(DAC2_CS_PIN, 0);
-  dac4.initialize(DAC2_CS_PIN, 1);
-  dac5.initialize(DAC3_CS_PIN, 0);
-  dac6.initialize(DAC3_CS_PIN, 1);
-  dac7.initialize(DAC4_CS_PIN, 0);
-  dac8.initialize(DAC4_CS_PIN, 1);
+  note1.initialize(DAC1_CS_PIN, 0);
+  note2.initialize(DAC1_CS_PIN, 1);
+  note3.initialize(DAC2_CS_PIN, 0);
+  note4.initialize(DAC2_CS_PIN, 1);
+  velocity1.initialize(DAC3_CS_PIN, 0);
+  velocity2.initialize(DAC3_CS_PIN, 1);
+  velocity3.initialize(DAC4_CS_PIN, 0);
+  velocity4.initialize(DAC4_CS_PIN, 1);
+  gate1.initialize(GATE1_PIN,LED_PIN1);
+  gate2.initialize(GATE2_PIN,LED_PIN2);
+  gate3.initialize(GATE3_PIN,LED_PIN3);
+  gate4.initialize(GATE4_PIN,LED_PIN4);
 }
 
 void loop() {
   analogMidiReceive();
   readSwitches();
   readPoti();
-  testDAC();
   stopClockTick();
 
   myusb.Task();
 	keyboard.read();
 }
 
+int smoothSize = 33;
+int potivalSmooth[33] = {9999};
+int potivalIterator = 0;
+int potireadSchedule = 0;
 void readPoti() {
-  int val = analogRead(POT_PIN);
-  if (potiVal != val && (potiVal + 40 < val || potiVal - 40 > val)) {
-    potiVal = val;
-    Serial.print("POTI1: ");
-    Serial.println(val);
+  potireadSchedule++;
+  if (potireadSchedule > 5000) {
+    potireadSchedule = 0;
+    int val = analogRead(POT_PIN);
+    int smoothval = 0;
+    if (potiVal != val) {
+      potivalSmooth[potivalIterator] = val;
+      int divider = 0;
+      for (int i = 0; i < smoothSize; i++) {
+        if (potivalSmooth[i] != 9999) {
+          divider++;
+          smoothval += potivalSmooth[i];
+        }
+      }
+
+      if (divider > 0) {
+        smoothval = smoothval / divider;
+      } else {
+        smoothval = val;
+      }
+
+      if (potiVal != smoothval && (potiVal + 5 < smoothval || potiVal - 5 > smoothval)) {
+        Serial.print("POTI1: ");
+        Serial.println(potiVal);
+        potiVal = smoothval;
+        setMidiChannel();
+      }
+      
+
+      potivalIterator++;
+      if (potivalIterator >= smoothSize) {
+        potivalIterator = 0;
+      }
+    }
   }
+
 }
 
-
-void setMidiChannel() {
-  int ch = 0;
-  if (on3) {
-    ch += 1;
-  }
-  if (on4) {
-    ch += 2;
-  }
-  if (on5) {
-    ch += 4;
-  }
-  if (on6) {
-    ch += 8;
-  }
-  midiChannel = ch;
-}
-
+int programMode = 0;
+int midiMode = 0;
+int switchSchedule = 0;
 void readSwitches() {
-  switch1_state = digitalRead(SWITCH1_PIN);
-  if (switch1_state != switch1_last_state) {
-    switch1_last_state = switch1_state;
+  switchSchedule++;
+  if (switchSchedule > 5000) {
+    switchSchedule = 0;
 
-    if (switch1_state == HIGH) {
-      Serial.println("SWITCH 1 ON");
-    } else {
-      Serial.println("SWITCH 1 OFF");
-    }
-  }
-  switch2_state = digitalRead(SWITCH2_PIN);
-  if (switch2_state != switch2_last_state) {
-    switch2_last_state = switch2_state;
+    switch1_state = digitalRead(SWITCH1_PIN);
+    if (switch1_state != switch1_last_state) {
+      switch1_last_state = switch1_state;
 
-    if (switch2_state == HIGH) {
-      Serial.println("SWITCH 2 ON");
-    } else {
-      Serial.println("SWITCH 2 OFF");
+      if (switch1_state == HIGH) {
+        midiMode = 1;
+      } else {
+        midiMode = 0;
+      }
+      digitalWrite(LED_PIN1, LOW);
+      digitalWrite(LED_PIN2, LOW);
+      digitalWrite(LED_PIN3, LOW);
+      digitalWrite(LED_PIN4, LOW);
+      Serial.print("MIDI MODE:");
+      Serial.println(midiMode);
     }
-  }
+    switch2_state = digitalRead(SWITCH2_PIN);
+    if (switch2_state != switch2_last_state) {
+      switch2_last_state = switch2_state;
 
-  switch3_state = digitalRead(SWITCH3_PIN);
-  if (switch3_state != switch3_last_state) {
-    switch3_last_state = switch3_state;
+      if (switch2_state == HIGH) {
 
-    if (switch3_state == HIGH) {
-      on3 = true;
-    } else {
-      on3 = false;
+        programMode++;
+        if (programMode >= 3) {
+          programMode = 0;
+        }
+
+      } else {
+
+      }
+      digitalWrite(LED_PIN1, LOW);
+      digitalWrite(LED_PIN2, LOW);
+      digitalWrite(LED_PIN3, LOW);
+      digitalWrite(LED_PIN4, LOW);
+      Serial.print("PRG MODE:");
+      Serial.println(programMode);
     }
-    setMidiChannel();
-  }
-  switch4_state = digitalRead(SWITCH4_PIN);
-  if (switch4_state != switch4_last_state) {
-    switch4_last_state = switch4_state;
-    if (switch4_state == HIGH) {
-      on4 = true;
-    } else {
-      on4 = false;
-    }
-    setMidiChannel();
-  }
-  switch5_state = digitalRead(SWITCH5_PIN);
-  if (switch5_state != switch5_last_state) {
-    switch5_last_state = switch5_state;
-    if (switch5_state == HIGH) {
-      on5 = true;
-    } else {
-      on5 = false;
-    }
-    setMidiChannel();
-  }
-  switch6_state = digitalRead(SWITCH6_PIN);
-  if (switch6_state != switch6_last_state) {
-    switch6_last_state = switch6_state;
-    if (switch6_state == HIGH) {
-      on6 = true;
-    } else {
-      on6 = false;
-    }
-    setMidiChannel();
   }
 }
 
@@ -264,8 +253,160 @@ void analogMidiReceive() {
   }
 }
 
+int midiChannels[4] = {1,2,3,4};
+int setupChannel = 0;
+void setMidiChannel() {
+  if (programMode == 1 && midiMode == 0) {
+    setupChannel = map(potiVal, 0, 1023, 0, 3);
+    digitalWrite(LED_PIN1, LOW);
+    digitalWrite(LED_PIN2, LOW);
+    digitalWrite(LED_PIN3, LOW);
+    digitalWrite(LED_PIN4, LOW);
+    switch (setupChannel) {
+      case 0:
+        digitalWrite(LED_PIN1, HIGH);
+        break;
+      case 1:
+        digitalWrite(LED_PIN2, HIGH);
+        break;
+      case 2:
+        digitalWrite(LED_PIN3, HIGH);
+        break;
+      case 3:
+        digitalWrite(LED_PIN4, HIGH);
+        break;
+    }
+  }
+  if (programMode == 2 && midiMode == 0) {
+    int setChannel = map(potiVal, 0, 1023, 1, 16);
+    midiChannels[setupChannel] = setChannel;
+    digitalWrite(LED_PIN1, LOW);
+    digitalWrite(LED_PIN2, LOW);
+    digitalWrite(LED_PIN3, LOW);
+    digitalWrite(LED_PIN4, LOW);
+    switch (setChannel) {
+      case 1:
+        digitalWrite(LED_PIN1, HIGH);
+        break;
+      case 2:
+        digitalWrite(LED_PIN2, HIGH);
+        break;
+      case 3:
+        digitalWrite(LED_PIN1, HIGH);
+        digitalWrite(LED_PIN2, HIGH);
+        break;
+      case 4:
+        digitalWrite(LED_PIN3, HIGH);
+        break;
+      case 5:
+        digitalWrite(LED_PIN1, HIGH);
+        digitalWrite(LED_PIN3, HIGH);
+        break;
+      case 6:
+        digitalWrite(LED_PIN2, HIGH);
+        digitalWrite(LED_PIN3, HIGH);
+        break;
+      case 7:
+        digitalWrite(LED_PIN1, HIGH);
+        digitalWrite(LED_PIN2, HIGH);
+        digitalWrite(LED_PIN3, HIGH);
+        break;
+      case 8:
+        digitalWrite(LED_PIN4, HIGH);
+        break;
+      case 9:
+        digitalWrite(LED_PIN1, HIGH);
+        digitalWrite(LED_PIN4, HIGH);
+        break;
+      case 10:
+        digitalWrite(LED_PIN2, HIGH);
+        digitalWrite(LED_PIN4, HIGH);
+        break;
+      case 11:
+        digitalWrite(LED_PIN1, HIGH);
+        digitalWrite(LED_PIN2, HIGH);
+        digitalWrite(LED_PIN4, HIGH);
+        break;
+      case 12:
+        digitalWrite(LED_PIN3, HIGH);
+        digitalWrite(LED_PIN4, HIGH);
+        break;
+      case 13:
+        digitalWrite(LED_PIN1, HIGH);
+        digitalWrite(LED_PIN3, HIGH);
+        digitalWrite(LED_PIN4, HIGH);
+        break;
+      case 14:
+        digitalWrite(LED_PIN2, HIGH);
+        digitalWrite(LED_PIN3, HIGH);
+        digitalWrite(LED_PIN4, HIGH);
+        break;
+      case 15:
+        digitalWrite(LED_PIN1, HIGH);
+        digitalWrite(LED_PIN2, HIGH);
+        digitalWrite(LED_PIN3, HIGH);
+        digitalWrite(LED_PIN4, HIGH);
+        break;
+      case 16:
+        digitalWrite(LED_PIN1, HIGH);
+        digitalWrite(LED_PIN2, HIGH);
+        digitalWrite(LED_PIN3, HIGH);
+        digitalWrite(LED_PIN4, HIGH);
+        break;
+    }
+  }
+  for (int i = 0; i < 4; i++) {
+    Serial.print(" CH");
+    Serial.print(i);
+    Serial.print(": ");
+    Serial.print(midiChannels[i]);
+  }
+  Serial.println();
+}
+
+int noteChannels[4] = {0,0,0,0};
 void OnNoteOn(byte channel, byte note, byte velocity) {
-  if (channel == midiChannel) {
+  int n = (int)(note * 42.666);
+  int v = velocity * 32;
+  Serial.println(channel);
+
+  if (programMode == 0 && midiMode == 0) {
+    for (int i = 0; i < 4; i++) {
+      if (midiChannels[i] == channel && noteChannels[i] == 0) {
+        noteChannels[i] = note;
+        switch (i) {
+          case 0:
+            note1.write(n);
+            velocity1.write(v);
+            gate1.on();
+            break;
+          case 1:
+            note2.write(n);
+            velocity2.write(v);
+            gate2.on();
+            break;
+          case 2:
+            note3.write(n);
+            velocity3.write(v);
+            gate3.on();
+            break;
+          case 3:
+            note4.write(n);
+            velocity4.write(v);
+            gate4.on();
+            break;
+          
+          default:
+            note1.write(n);
+            velocity1.write(v);
+            gate1.on();
+            break;
+        }
+      }
+    }
+  }
+  if (programMode == 0 && midiMode == 1) {
+  //if (channel == midiChannel) {
     int freeSlot = 0;
     bool hasFreeSlot = false;
     for (int i = 0; i < 4; i++) {
@@ -277,39 +418,38 @@ void OnNoteOn(byte channel, byte note, byte velocity) {
     }
     if (hasFreeSlot) {
       noteSlotPlaying[freeSlot] = note;
-      int n = (int)(note * 42.666);
-      int v = velocity * 32;
+      Serial.print("FREESLOT: ");
+      Serial.print(freeSlot);
+      Serial.print(" NOTE: ");
+      Serial.print(n);
+      Serial.print(" NOTE PLAY: ");
+      Serial.println(noteSlotPlaying[freeSlot]);
       switch (freeSlot) {
+        case 0:
+          note1.write(n);
+          velocity1.write(v);
+          gate1.on();
+          break;
         case 1:
-          dac1.write(n);
-          dac5.write(v);
-          digitalWrite(GATE1_PIN, HIGH);
-          digitalWrite(LED_PIN1, HIGH);
+          note2.write(n);
+          velocity2.write(v);
+          gate2.on();
           break;
         case 2:
-          dac2.write(n);
-          dac6.write(v);
-          digitalWrite(GATE2_PIN, HIGH);
-          digitalWrite(LED_PIN2, HIGH);
+          note3.write(n);
+          velocity3.write(v);
+          gate3.on();
           break;
         case 3:
-          dac3.write(n);
-          dac7.write(v);
-          digitalWrite(GATE3_PIN, HIGH);
-          digitalWrite(LED_PIN3, HIGH);
-          break;
-        case 4:
-          dac4.write(n);
-          dac8.write(v);
-          digitalWrite(GATE4_PIN, HIGH);
-          digitalWrite(LED_PIN4, HIGH);
+          note4.write(n);
+          velocity4.write(v);
+          gate4.on();
           break;
         
         default:
-          dac1.write(n);
-          dac5.write(v);
-          digitalWrite(GATE1_PIN, HIGH);
-          digitalWrite(LED_PIN1, HIGH);
+          note1.write(n);
+          velocity1.write(v);
+          gate1.on();
           break;
       }
     }
@@ -317,31 +457,52 @@ void OnNoteOn(byte channel, byte note, byte velocity) {
 }
 
 void OnNoteOff(byte channel, byte note, byte velocity) {
-  if (channel == midiChannel) {
+  if (programMode == 0 && midiMode == 0) {
+    for (int i = 0; i < 4; i++) {
+      if (midiChannels[i] == channel && noteChannels[i] == note) {
+        noteChannels[i] = 0;
+        switch (i) {
+          case 0:
+            gate1.off();
+            break;
+          case 1:
+            gate2.off();
+            break;
+          case 2:
+            gate3.off();
+            break;
+          case 3:
+            gate4.off();
+            break;
+          
+          default:
+            gate1.off();
+            break;
+        }
+      }
+    }
+  }
+  if (programMode == 0 && midiMode == 1) {
+  //if (channel == midiChannel) {
     for (int i = 0; i < 4; i++) {
       if (noteSlotPlaying[i] == note) {
         noteSlotPlaying[i] = 0;
         switch (i) {
+          case 0:
+            gate1.off();
+            break;
           case 1:
-            digitalWrite(GATE1_PIN, LOW);
-            digitalWrite(LED_PIN1, LOW);
+            gate2.off();
             break;
           case 2:
-            digitalWrite(GATE2_PIN, LOW);
-            digitalWrite(LED_PIN2, LOW);
+            gate3.off();
             break;
           case 3:
-            digitalWrite(GATE3_PIN, LOW);
-            digitalWrite(LED_PIN3, LOW);
-            break;
-          case 4:
-            digitalWrite(GATE4_PIN, LOW);
-            digitalWrite(LED_PIN4, LOW);
+            gate4.off();
             break;
           
           default:
-            digitalWrite(GATE1_PIN, LOW);
-            digitalWrite(LED_PIN1, LOW);
+            gate1.off();
             break;
         }
       }
@@ -349,7 +510,7 @@ void OnNoteOff(byte channel, byte note, byte velocity) {
   }
 }
 
-void myClock() {
+void OnClockTick() {
   startClockTick();
 }
 
@@ -365,22 +526,4 @@ void stopClockTick() {
     digitalWrite(CLOCK_PIN, LOW);
     clkOutputStartTime = 0;
   }
-}
-
-// remove
-int dac_loop_counter = 1;
-void testDAC() {
-  dac_loop_counter++;
-  if (dac_loop_counter >= 4095) {
-    dac_loop_counter = 1;
-  }
-
-  dac1.write(dac_loop_counter);
-  dac2.write(dac_loop_counter);
-  dac3.write(dac_loop_counter);
-  dac4.write(dac_loop_counter);
-  dac5.write(dac_loop_counter);
-  dac6.write(dac_loop_counter);
-  dac7.write(dac_loop_counter);
-  dac8.write(dac_loop_counter);
 }

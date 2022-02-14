@@ -6,6 +6,7 @@ void dac::initialize(int chipSelect, int dacOutput) {
     gain = 0;
     SPI.begin();  
     SPI.setClockDivider(SPI_CLOCK_DIV2);
+    pinMode(chipSelect, OUTPUT);
 }
 
 void dac::write(int val) {
