@@ -20,10 +20,10 @@
 #define DAC3_CS_PIN 33
 #define DAC4_CS_PIN 34
 
-#define LED_PIN1 16
-#define LED_PIN2 17
-#define LED_PIN3 18
-#define LED_PIN4 19
+#define LED_PIN4 16
+#define LED_PIN3 17
+#define LED_PIN2 18
+#define LED_PIN1 19
 
 #define CLOCK_PIN 32
 
@@ -108,14 +108,14 @@ void setup() {
   usbMIDI.setHandleNoteOn(OnNoteOff);
   usbMIDI.setHandleClock(OnClockTick);
 
-  note1.initialize(DAC1_CS_PIN, 0);
-  note2.initialize(DAC1_CS_PIN, 1);
-  note3.initialize(DAC2_CS_PIN, 0);
-  note4.initialize(DAC2_CS_PIN, 1);
-  velocity1.initialize(DAC3_CS_PIN, 0);
-  velocity2.initialize(DAC3_CS_PIN, 1);
-  velocity3.initialize(DAC4_CS_PIN, 0);
-  velocity4.initialize(DAC4_CS_PIN, 1);
+  note1.initialize(DAC2_CS_PIN, 0);
+  note2.initialize(DAC2_CS_PIN, 1);
+  note3.initialize(DAC1_CS_PIN, 0);
+  note4.initialize(DAC1_CS_PIN, 1);
+  velocity1.initialize(DAC3_CS_PIN, 1);
+  velocity2.initialize(DAC3_CS_PIN, 0);
+  velocity3.initialize(DAC4_CS_PIN, 1);
+  velocity4.initialize(DAC4_CS_PIN, 0);
   gate1.initialize(GATE1_PIN,LED_PIN1);
   gate2.initialize(GATE2_PIN,LED_PIN2);
   gate3.initialize(GATE3_PIN,LED_PIN3);
@@ -454,6 +454,7 @@ void OnNoteOn(byte channel, byte note, byte velocity) {
       }
     }
   }
+  setArpNotes();
 }
 
 void OnNoteOff(byte channel, byte note, byte velocity) {
@@ -526,4 +527,55 @@ void stopClockTick() {
     digitalWrite(CLOCK_PIN, LOW);
     clkOutputStartTime = 0;
   }
+}
+
+int arpNotesASC[4] = {0}
+int arpNotesDESC[4] = {0}
+int arpNotesRandom[4] = {0}
+int arpRandoms[4] = {9999}
+
+void setArpNotes() {
+  
+  for (int i = 0; i < 4; i++) {
+    int random = rand() % 1000;
+    arpRandoms[i] = random;
+  }
+
+  int a = 3;
+  Serial.print("RANDOM: ");
+  for (int i = 0; i < 4; i++) {
+    arpNotesASC[i] = noteChannels[i];
+    arpNotesDESC[a] = noteChannels[i];
+    a--;
+
+    int smallest = 9999;
+    int iteratorSmallest = 0;
+    for (int x = 0; x < 4; x++) {
+      if (arpRandoms[x] <= smallest && arpRandoms[x] != 9999) {
+        smallest = arpRandoms[x];
+        iteratorSmallest = x;
+      }
+    }
+    arpNotesRandom[i] = smallest;
+    arpRandoms[iteratorSmallest] = 9999;
+    Serial.print(i);
+    Serial.print("-");
+    Serial.print(arpNotesRandom[i]);
+    Serial.print(" ");
+  }
+  Serial.print(" ARPNOTES: ");
+  for (int i = 0; i < 4; i++) {
+    Serial.print(i);
+    Serial.print("-");
+    Serial.print(arpNotesASC[i]);
+    Serial.print(" ");
+  }
+  Serial.print(" ARPNOTESREVERS: ");
+  for (int i = 0; i < 4; i++) {
+    Serial.print(i);
+    Serial.print("-");
+    Serial.print(arpNotesDESC[i]);
+    Serial.print(" ");
+  }
+  Serial.println();
 }
