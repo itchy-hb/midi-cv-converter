@@ -6,24 +6,24 @@
 
 #define SWITCH1_PIN 31
 #define SWITCH2_PIN 30
-#define SWITCH3_PIN 38
-#define SWITCH4_PIN 39
-#define SWITCH5_PIN 40
-#define SWITCH6_PIN 41
+
+#define PRG_BTN_PIN 38
+#define PRG_LED_PIN 39
+
+#define LED_PIN1 19
+#define LED_PIN2 18
+#define LED_PIN3 17
+#define LED_PIN4 16
 
 #define POT_PIN 14
 
 #define SPI_CLK 13
 #define SPI_MOSI 11
-#define DAC1_CS_PIN 37
-#define DAC2_CS_PIN 36
+
+#define DAC1_CS_PIN 36
+#define DAC2_CS_PIN 37
 #define DAC3_CS_PIN 33
 #define DAC4_CS_PIN 34
-
-#define LED_PIN1 16
-#define LED_PIN2 17
-#define LED_PIN3 18
-#define LED_PIN4 19
 
 #define CLOCK_PIN 32
 
@@ -43,12 +43,6 @@ int switch2_state = LOW;
 int switch2_last_state = LOW;
 int switch3_state = LOW;
 int switch3_last_state = LOW;
-int switch4_state = LOW;
-int switch4_last_state = LOW;
-int switch5_state = LOW;
-int switch5_last_state = LOW;
-int switch6_state = LOW;
-int switch6_last_state = LOW;
 
 int midiChannel = 1;
 bool on3 = false;
@@ -76,6 +70,16 @@ gate gate3;
 gate gate4;
 
 int potiVal = 0;
+
+int smoothSize = 33;
+int potivalSmooth[33] = {9999};
+int potivalIterator = 0;
+int potireadSchedule = 0;
+
+int programMode = 0;
+int midiMode = 0;
+int arpMode = 0;
+int switchSchedule = 0;
 
 void readSwitches();
 void readPoti();
@@ -112,10 +116,12 @@ void setup() {
   note2.initialize(DAC1_CS_PIN, 1);
   note3.initialize(DAC2_CS_PIN, 0);
   note4.initialize(DAC2_CS_PIN, 1);
-  velocity1.initialize(DAC3_CS_PIN, 0);
-  velocity2.initialize(DAC3_CS_PIN, 1);
-  velocity3.initialize(DAC4_CS_PIN, 0);
-  velocity4.initialize(DAC4_CS_PIN, 1);
+
+
+  velocity1.initialize(DAC3_CS_PIN, 1);
+  velocity2.initialize(DAC3_CS_PIN, 0);
+  velocity3.initialize(DAC4_CS_PIN, 1);
+  velocity4.initialize(DAC4_CS_PIN, 0);
   gate1.initialize(GATE1_PIN,LED_PIN1);
   gate2.initialize(GATE2_PIN,LED_PIN2);
   gate3.initialize(GATE3_PIN,LED_PIN3);
@@ -132,10 +138,6 @@ void loop() {
 	keyboard.read();
 }
 
-int smoothSize = 33;
-int potivalSmooth[33] = {9999};
-int potivalIterator = 0;
-int potireadSchedule = 0;
 void readPoti() {
   potireadSchedule++;
   if (potireadSchedule > 5000) {
@@ -175,9 +177,7 @@ void readPoti() {
 
 }
 
-int programMode = 0;
-int midiMode = 0;
-int switchSchedule = 0;
+
 void readSwitches() {
   switchSchedule++;
   if (switchSchedule > 5000) {
@@ -192,10 +192,6 @@ void readSwitches() {
       } else {
         midiMode = 0;
       }
-      digitalWrite(LED_PIN1, LOW);
-      digitalWrite(LED_PIN2, LOW);
-      digitalWrite(LED_PIN3, LOW);
-      digitalWrite(LED_PIN4, LOW);
       Serial.print("MIDI MODE:");
       Serial.println(midiMode);
     }
@@ -204,21 +200,39 @@ void readSwitches() {
       switch2_last_state = switch2_state;
 
       if (switch2_state == HIGH) {
+        arpMode = 1;
+      } else {
+        arpMode = 0;
+      }
+      Serial.print("ARP MODE:");
+      Serial.println(arpMode);
 
+    }
+
+    switch3_state = digitalRead(PRG_BTN_PIN);
+    if (switch3_state != switch3_last_state) {
+      switch3_last_state = switch3_state;
+
+      if (switch3_state == HIGH) {
         programMode++;
         if (programMode >= 3) {
           programMode = 0;
         }
+      }
 
+      if (programMode == 0) {
+        digitalWrite(PRG_LED_PIN, LOW);
+        digitalWrite(LED_PIN1, LOW);
+        digitalWrite(LED_PIN2, LOW);
+        digitalWrite(LED_PIN3, LOW);
+        digitalWrite(LED_PIN4, LOW);
       } else {
 
+         digitalWrite(PRG_LED_PIN, HIGH);
       }
-      digitalWrite(LED_PIN1, LOW);
-      digitalWrite(LED_PIN2, LOW);
-      digitalWrite(LED_PIN3, LOW);
-      digitalWrite(LED_PIN4, LOW);
-      Serial.print("PRG MODE:");
-      Serial.println(programMode);
+              
+        Serial.print("PRG MODE:");
+        Serial.println(programMode);
     }
   }
 }
